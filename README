@@ -1,0 +1,48 @@
+Boruta is a text file database with stack based query language
+
+This is an exploration of an idea where a text file is a database
+presented in humanreadable form that is easy and safe to edit by hand.
+
+https://en.wikipedia.org/wiki/Database_model
+https://en.wikipedia.org/wiki/Relational_model
+https://en.wikipedia.org/wiki/Codd%27s_12_rules
+https://en.wikipedia.org/wiki/Flat-file_database
+
+
+USAGE
+
+	> db_file LOAD
+	1
+	> table0 TABLE id name updated_at CREATE
+	3
+	> table0 TABLE id 0 name Gomez INSERT id 1 name Diego INSERT id 2 name Milten INSERT
+	3
+	> table0 TABLE id 0 GT updated_at NULL EQ name SELECT
+	name
+	Diego
+	Milten
+	2
+	> table0 TABLE id 1 LEQ updated_at 2025 UPDATE
+	2
+	> table0 TABLE * SELECT
+	id  name    updated_at
+	0   Gomez   2025
+	1   Diego   2025
+	2   Milten  ---
+	3
+	> table0 TABLE updated_at 2025 EQ DELETE
+	2
+	> table0 TABLE * SELECT
+	id  name    updated_at
+	2   Milten  ---
+	1
+	> table0 TABLE updated_at DROP
+	1
+	> table0 TABLE * DROP
+	2
+	> table0 TABLE DROP
+	1
+	> optional_file_path SAVE
+	1
+	> UNLOAD
+	0
