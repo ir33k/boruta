@@ -1,5 +1,5 @@
-extern char  *boruta_err;	/* Tell me why! */
-extern char **boruta_cols;
-extern char **boruta_row;
+extern const char *boruta_err;	/* Tell me why! */
+extern const char **boruta_cols;
+extern const char **boruta_row;
 
 int boruta(char *fmt, ...);

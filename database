@@ -1,15 +1,16 @@
 table0
 
+
 table1
-id
-
-
+id  
 
 table3
-id  name  email
+id  name  email  
 
 table4
-id  name   email
-0   Gomez  gomez@old.camp
-1   Diego  diego@old.camp
-2   Snap   snap@old.camp
+id  name   email           
+0   Gomez  gomez@old.camp  
+1   Diego  diego@old.camp  
+2   ---    snap@old.camp   
+3   ---    ---             
+
