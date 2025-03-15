@@ -26,7 +26,9 @@ struct table {
 	struct table *next;
 };
 
-typedef struct {	/* Currently running command context */
+struct state {
+	boruta_cb_t cb;
+	void *ctx;
 	char cmd[4096], *cp;
 	char *stack[128];
 	unsigned si;
@@ -34,74 +36,59 @@ typedef struct {	/* Currently running command context */
 	struct table *table;	/* Selected table by name if exist */
 	char *eq[CMAX];
 	char *neq[CMAX];
-} ctx_t;
+};
 
-/* Util */
+struct word {
+	char *name;
+	err_t (*cb)(struct state*);
+};
+
 static err_t msg(const char *fmt, ...);
 static unsigned utf8len(char *str);
 static unsigned width(unsigned w, char *cell);
-
-/* Memory */
 static char *store(char *str, size_t len);
-
-/* Table */
 static struct table *table_get(char *name);
 static struct table *table_new();
 static struct row *row_new(struct table *t);
 static int column_indexof(struct table *t, char *name);
-
-/* Parsing */
 static char *skip_whitespaces(char *str);
 static char *each_line(char *str);
 static char *each_cell(char *str);
 static err_t parse(char *str);
-
-/* Stack */
-static void push(ctx_t *ctx, char *word);
-static char *pop(ctx_t *ctx);
-
-/* TODO(irek): I don't like this function */
-static char *next(ctx_t *ctx);
+static void push(struct state *state, char *word);
+static char *pop(struct state *state);
+static char *next(struct state *state);
 
 /* Words */
-static err_t Unimplemented(ctx_t*);
-static err_t Load(ctx_t*);
-static err_t Save(ctx_t*);
-static err_t From(ctx_t*);
-static err_t Eq(ctx_t*);
-static err_t Neq(ctx_t*);
-static err_t Describe(ctx_t*);
-static err_t Select(ctx_t*);
-static err_t Create(ctx_t*);
-static err_t Insert(ctx_t*);
-static err_t Null(ctx_t*);
-static err_t Now(ctx_t*);
+static err_t Load(struct state*);
+static err_t Save(struct state*);
+static err_t Table(struct state*);
+static err_t Eq(struct state*);
+static err_t Neq(struct state*);
+static err_t Select(struct state*);
+static err_t Create(struct state*);
+static err_t Insert(struct state*);
+static err_t Set(struct state*);
+static err_t Del(struct state*);
+static err_t Drop(struct state*);
+static err_t Null(struct state*);
+static err_t Now(struct state*);
 
-/* External */
-const char *boruta_err;
-const char **boruta_cols;
-const char **boruta_row;
-
-/* Internal */
 static struct table *tables = 0;
-static struct {
-	char *name;
-	err_t (*cb)(ctx_t*);
-} words[] = {
-	"LOAD",		Load,
-	"SAVE",		Save,
-	"FROM",		From,
-	"EQ",		Eq,
-	"NEQ",		Neq,
-	"DESCRIBE",	Describe,
+static struct word words[] = {
+	"LOAD",	Load,
+	"SAVE",	Save,
+	"TABLE",	Table,
+	"EQ",	Eq,
+	"NEQ",	Neq,
 	"SELECT",	Select,
 	"CREATE",	Create,
 	"INSERT",	Insert,
-	"UPDATE",	Unimplemented,
-	"DELETE",	Unimplemented,
-	"DROP",		Unimplemented,
-	"NULL",		Null,
-	"NOW",		Now,
+	"SET",	Set,
+	"DEL",	Del,
+	"DROP",	Drop,
+	"NULL",	Null,
+	"NOW",	Now,
 	0
 };
 
@@ -263,7 +250,7 @@ parse(char *str)
 {
 	struct table *t=0;
 	struct row *r=0;
-	unsigned i=0, w;
+	unsigned i=0, n;
 	char *line, *next_line, *cell, *next_cell;
 	int state;
 
@@ -317,9 +304,9 @@ parse(char *str)
 				break;
 			case ROWS:
 				r->cells[i] = cell;
-				w = utf8len(cell);
-				if (w > t->width[i])
-					t->width[i] = w;
+				n = utf8len(cell);
+				if (n > t->width[i])
+					t->width[i] = n;
 				break;
 			}
 		}
@@ -329,54 +316,47 @@ parse(char *str)
 }
 
 static void
-push(ctx_t *ctx, char *word)
+push(struct state *state, char *word)
 {
-	ctx->stack[ctx->si++] = word;
+	state->stack[state->si++] = word;
 }
 
 static char *
-pop(ctx_t *ctx)
+pop(struct state *state)
 {
-	return ctx->si ? ctx->stack[--(ctx->si)] : 0;
+	return state->si ? state->stack[--(state->si)] : 0;
 }
 
 static char *
-next(ctx_t *ctx)
+next(struct state *state)
 {
 	char terminate, *word;
 
-	ctx->cp = skip_whitespaces(ctx->cp);
-	if (!*ctx->cp)
+	state->cp = skip_whitespaces(state->cp);
+	if (!*state->cp)
 		return 0;
 
-	switch (*ctx->cp) {
+	switch (*state->cp) {
 	case '"': case '\'':	/* Explicite strings */
-		terminate = *ctx->cp;
-		(*ctx->cp)++;
+		terminate = *state->cp;
+		(*state->cp)++;
 		break;
 	default:
 		terminate = ' ';
 	}
 
-	word = ctx->cp;
+	word = state->cp;
 
-	while (*ctx->cp && *ctx->cp != '\n' && *ctx->cp != terminate)
-		ctx->cp++;
+	while (*state->cp && *state->cp != '\n' && *state->cp != terminate)
+		state->cp++;
 
-	*ctx->cp = 0;
-	ctx->cp++;
+	*state->cp = 0;
+	state->cp++;
 	return word;
 }
 
 static err_t
-Unimplemented(ctx_t *ctx)
-{
-	(void)ctx;
-	return "Unimplemented word";
-}
-
-static err_t
-Load(ctx_t *ctx)
+Load(struct state *state)
 {
 	err_t why;
 	char *str;
@@ -384,7 +364,7 @@ Load(ctx_t *ctx)
 	FILE *fp;
 	size_t sz;
 
-	str = pop(ctx);
+	str = pop(state);
 	if (!str)
 		return "Missing file path";
 
@@ -415,7 +395,7 @@ Load(ctx_t *ctx)
 }
 
 static err_t
-Save(ctx_t *ctx)
+Save(struct state *state)
 {
 	char *str;
 	FILE *fp;
@@ -423,7 +403,7 @@ Save(ctx_t *ctx)
 	struct row *r;
 	unsigned i;
 
-	str = pop(ctx);
+	str = pop(state);
 	if (!str)
 		return "Missing file path";
 
@@ -459,25 +439,25 @@ Save(ctx_t *ctx)
 }
 
 static err_t
-From(ctx_t *ctx)
+Table(struct state *state)
 {
-	ctx->tname = pop(ctx);
-	ctx->table = table_get(ctx->tname);
+	state->tname = pop(state);
+	state->table = table_get(state->tname);
 	return 0;
 }
 
 static err_t
-Eq(ctx_t *ctx)
+Eq(struct state *state)
 {
 	char *column, *value;
 	int i;
 
-	if (!ctx->table)
+	if (!state->table)
 		return "Undefined table";
 
 	while (1) {
-		column = pop(ctx);
-		value = pop(ctx);
+		column = pop(state);
+		value = pop(state);
 
 		if (!column)
 			break;	/* End, nothing more on stack */
@@ -485,28 +465,28 @@ Eq(ctx_t *ctx)
 		if (!value)
 			return msg("Missing value for column %s", column);
 
-		i = column_indexof(ctx->table, column);
+		i = column_indexof(state->table, column);
 		if (i == -1)
 			return msg("Column %s don't exist", column);
 
-		ctx->eq[i] = value;
+		state->eq[i] = value;
 	}
 
 	return 0;
 }
 
 static err_t
-Neq(ctx_t *ctx)
+Neq(struct state *state)
 {
 	char *column, *value;
 	int i;
 
-	if (!ctx->table)
+	if (!state->table)
 		return "Undefined table";
 
 	while (1) {
-		column = pop(ctx);
-		value = pop(ctx);
+		column = pop(state);
+		value = pop(state);
 
 		if (!column)
 			break;	/* End, nothing more on stack */
@@ -514,92 +494,68 @@ Neq(ctx_t *ctx)
 		if (!value)
 			return msg("Missing value for column %s", column);
 
-		i = column_indexof(ctx->table, column);
+		i = column_indexof(state->table, column);
 		if (i == -1)
 			return msg("Column %s don't exist", column);
 
-		ctx->neq[i] = value;
+		state->neq[i] = value;
 	}
 
 	return 0;
 }
 
-/* TODO(irek): Printing directly to STDOUT is not an option if I want
- * to use this as library. */
 static err_t
-Describe(ctx_t *ctx)
-{
-	struct table *t;
-	unsigned i;
-
-	if (!tables)
-		return "No tables";
-
-	for (t = tables; t; t = t->next) {
-		if (ctx->table && t != ctx->table)
-			continue;
-
-		printf("%s: ", t->name);
-
-		for (i=0; t->cols[i]; i++)
-			printf("%s, ", t->cols[i]);
-
-		printf("\b\b\n");
-	}
-	return 0;
-}
-
-static err_t
-Select(ctx_t *ctx)
+Select(struct state *state)
 {
 	struct row *r;
-	int i, cols[CMAX], cn;
-	char *str;
+	char *str, *cols[CMAX], *rows[CMAX];
+	int i,j, coli[CMAX], ri, cn;
 
-	if (!ctx->table)
+	if (!state->table)
 		return "Undefined table";
 
+	ri = 0;
 	cn = 0;
-	while (cn < CMAX && (str = pop(ctx))) {
+
+	for (i=CMAX; i>0;) {
+		str = pop(state);
+		if (!str)
+			break;
+
 		if (!strcmp(str, "*")) {
-			for (i=0; ctx->table->cols[i]; i++)
-				cols[cn++] = i;
+			for (j=0; i>0 && state->table->cols[j]; j++)
+				coli[--i] = j;
 			continue;
 		}
-		i = column_indexof(ctx->table, str);
-		if (i == -1)
+
+		j = column_indexof(state->table, str);
+		if (j == -1)
 			return msg("Unknown column %s", str);
-		cols[cn++] = i;
-	}
 
-	/* TODO(irek): Consider storing number of columns. */
-	for (i=cn-1; i >= 0; i--) {
-		str = ctx->table->cols[cols[i]];
-		printf("%-*s  ",
-		       width(ctx->table->width[cols[i]], str),
-		       str);
+		coli[--i] = j;
 	}
-	printf("\n");
+	cn = CMAX - i;
+	for (j=0; j<cn; j++)
+		coli[j] = coli[i++];
 
-	for (r = ctx->table->rows; r; r = r->next) {
-		for (i=0; ctx->table->cols[i]; i++) {
-			str = ctx->eq[i];
+	for (i=0; i<cn; i++)
+		cols[i] = state->table->cols[coli[i]];
+
+	for (r = state->table->rows; r; r = r->next, ri++) {
+		for (i=0; state->table->cols[i]; i++) {
+			str = state->eq[i];
 			if (str && strcmp(str, r->cells[i]))
 				goto skip;
 
-			str = ctx->neq[i];
+			str = state->neq[i];
 			if (str && !strcmp(str, r->cells[i]))
 				goto skip;
 		}
 
-		for (i=cn-1; i >= 0; i--) {
-			str = r->cells[cols[i]];
-			printf("%-*s  ",
-			       width(ctx->table->width[cols[i]], str),
-			       str);
-		}
+		for (i=0; i<cn; i++)
+			rows[i] = r->cells[coli[i]];
 
-		printf("\n");
+		(*state->cb)(state->ctx, 0, ri, cn, cols, rows);
 	skip:
 		continue;
 	}
@@ -608,38 +564,38 @@ Select(ctx_t *ctx)
 }
 
 static err_t
-Create(ctx_t *ctx)
+Create(struct state *state)
 {
 	char *cell, *cells[CMAX] = {0};
 	unsigned i, j;
 
-	if (!ctx->tname)
+	if (!state->tname)
 		return "Missing table name";
 
-	if (ctx->table)
+	if (state->table)
 		return "Table already exists";
 
-	ctx->table = table_new();
-	if (!ctx->table)
+	state->table = table_new();
+	if (!state->table)
 		return "Failed to create new table";
 
-	ctx->table->name = store(ctx->tname, -1);
+	state->table->name = store(state->tname, -1);
 
-	for (i=0; i < CMAX-1 && (cell = pop(ctx)); i++)
+	for (i=0; i < CMAX-1 && (cell = pop(state)); i++)
 		cells[i] = store(cell, -1);
 
-	/* NOTE(irek): Deicrement to preserve columns order. */
+	/* NOTE(irek): Decrement to preserve columns order. */
 	for (j=0; i--; j++) {
 		cell = cells[i];
-		ctx->table->cols[j] = cell;
-		ctx->table->width[j] = utf8len(cell);
+		state->table->cols[j] = cell;
+		state->table->width[j] = utf8len(cell);
 	}
 
 	return 0;
 }
 
 static err_t
-Insert(ctx_t *ctx)
+Insert(struct state *state)
 {
 	struct row *r;
 	char *column, *value;
@@ -647,12 +603,12 @@ Insert(ctx_t *ctx)
 	unsigned w;
 	char *cells[CMAX] = {0};
 
-	if (!ctx->table)
+	if (!state->table)
 		return "Undefined table";
 
 	while (1) {
-		column = pop(ctx);
-		value = pop(ctx);
+		column = pop(state);
+		value = pop(state);
 
 		if (!column)
 			break;	/* End, nothing more on stack */
@@ -660,36 +616,57 @@ Insert(ctx_t *ctx)
 		if (!value)
 			return msg("Missing value for column %s", column);
 
-		i = column_indexof(ctx->table, column);
+		i = column_indexof(state->table, column);
 		if (i == -1)
 			return msg("Column %s don't exist", column);
 
 		cells[i] = value;
 	}
 
-	r = row_new(ctx->table);
+	r = row_new(state->table);
 	if (!r)
-		return msg("Failed to create row for table %s", ctx->table->name);
+		return msg("Failed to create row for table %s", state->table->name);
 
-	for (i=0; ctx->table->cols[i]; i++) {
+	for (i=0; state->table->cols[i]; i++) {
 		r->cells[i] = cells[i] ? store(cells[i], -1) : EMPTY;
 		w = utf8len(r->cells[i]);
-		if (w > ctx->table->width[i])
-			ctx->table->width[i] = w;
+		if (w > state->table->width[i])
+			state->table->width[i] = w;
 	}
 
 	return 0;
 }
 
 static err_t
-Null(ctx_t *ctx)
+Set(struct state *state)
 {
-	push(ctx, EMPTY);
+	(void)state;
+	return "Not implemented";
+}
+
+static err_t
+Del(struct state *state)
+{
+	(void)state;
+	return "Not implemented";
+}
+
+static err_t
+Drop(struct state *state)
+{
+	(void)state;
+	return "Not implemented";
+}
+
+static err_t
+Null(struct state *state)
+{
+	push(state, EMPTY);
 	return 0;
 }
 
 static err_t
-Now(ctx_t *ctx)
+Now(struct state *state)
 {
 	time_t now;
 	struct tm *tm;
@@ -707,47 +684,50 @@ Now(ctx_t *ctx)
 	 * program like most of the values.  The main storage is more
 	 * suited for storing table cell values. */
 	str = store(buf, sz);
-	push(ctx, str);
-
+	push(state, str);
 	return 0;
 }
 
-int
-boruta(char *fmt, ...)
+void
+boruta(boruta_cb_t cb, void *ctx, char *fmt, ...)
 {
-	static ctx_t ctx = {0};
+	static struct state state = {0};
+	err_t why = 0;
 	char *str;
 	va_list ap;
-	unsigned i, n;
+	unsigned n;
+	struct word *w;
 
-	boruta_err = 0;
-	boruta_cols = 0;
-	boruta_row = 0;
+	memset(&state, 0, sizeof state);
 
-	/* New command */
-	if (fmt) {
-		memset(&ctx, 0, sizeof ctx);
-		va_start(ap, fmt);
-		n = vsnprintf(ctx.cmd, sizeof ctx.cmd, fmt, ap);
-		va_end(ap);
-		ctx.cp = ctx.cmd;
-		if (n >= sizeof ctx.cmd)
-			boruta_err = msg("Command length exceeded (%d)", sizeof ctx.cmd);
-		return 0;
-	}
+	state.cb = cb;
+	state.ctx = ctx;
 
-	str = next(&ctx);
-	if (!str)
-		return 0;	/* End */
+	va_start(ap, fmt);
+	n = vsnprintf(state.cmd, sizeof state.cmd, fmt, ap);
+	va_end(ap);
 
-	for (i=0; words[i].name; i++)
-		if (!strcmp(words[i].name, str))
+	state.cp = state.cmd;
+	if (n >= sizeof state.cmd)
+		why = msg("Command length exceeded (%d)", sizeof state.cmd);
+
+	while (1) {
+		if (why) {
+			(*cb)(ctx, why, 0, 0, 0, 0);
+			break;
+		}
+
+		str = next(&state);
+		if (!str)
 			break;
 
-	if (words[i].name)
-		boruta_err = (*words[i].cb)(&ctx);
-	else
-		push(&ctx, str);
+		for (w=words; w->name; w++)
+			if (!strcmp(w->name, str))
+				break;
 
-	return 1;
+		if (w->name)
+			why = (*w->cb)(&state);
+		else
+			push(&state, str);
+	}
 }

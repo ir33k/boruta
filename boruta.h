@@ -1,5 +1,4 @@
-extern const char *boruta_err;	/* Tell me why! */
-extern const char **boruta_cols;
-extern const char **boruta_row;
+typedef void (*boruta_cb_t)(void *ctx, const char *why,
+                            int ri, int cn, char **cols, char **rows);
 
-int boruta(char *fmt, ...);
+void boruta(boruta_cb_t cb, void *ctx, char *fmt, ...);
