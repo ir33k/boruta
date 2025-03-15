@@ -11,8 +11,6 @@
 
 enum { TABLE, COLS, ROWS };	/* Parser state */
 
-typedef const char* err_t;
-
 struct row {
 	char *cells[CMAX];
 	struct row *next;
@@ -20,32 +18,30 @@ struct row {
 
 struct table {
 	char *name;
+	int cn;	/* Number of columns */
 	char *cols[CMAX];
-	unsigned width[CMAX];	/* Each column max width */
+	int width[CMAX];	/* Each column max width */
 	struct row *rows, *last;
 	struct table *next;
 };
 
-struct state {
+struct query {
 	boruta_cb_t cb;
 	void *ctx;
-	char cmd[4096], *cp;
 	char *stack[128];
-	unsigned si;
+	int si;
 	char *tname;		/* Selected table name */
-	struct table *table;	/* Selected table by name if exist */
-	char *eq[CMAX];
-	char *neq[CMAX];
+	struct table *table;	/* Selected table if exist */
+	char *eq[CMAX], *neq[CMAX];
 };
 
 struct word {
-	char *name;
-	err_t (*cb)(struct state*);
+	char *name, *(*cb)(struct query*);
 };
 
-static err_t msg(const char *fmt, ...);
-static unsigned utf8len(char *str);
-static unsigned width(unsigned w, char *cell);
+static char *msg(const char *fmt, ...);
+static int utf8len(char *str);
+static int width(int w, char *cell);
 static char *store(char *str, size_t len);
 static struct table *table_get(char *name);
 static struct table *table_new();
@@ -54,45 +50,45 @@ static int column_indexof(struct table *t, char *name);
 static char *skip_whitespaces(char *str);
 static char *each_line(char *str);
 static char *each_cell(char *str);
-static err_t parse(char *str);
-static void push(struct state *state, char *word);
-static char *pop(struct state *state);
-static char *next(struct state *state);
+static char *parse(char *str);
+static void push(struct query *state, char *word);
+static char *pop(struct query *state);
+static char *next(char **cp);
 
 /* Words */
-static err_t Load(struct state*);
-static err_t Save(struct state*);
-static err_t Table(struct state*);
-static err_t Eq(struct state*);
-static err_t Neq(struct state*);
-static err_t Select(struct state*);
-static err_t Create(struct state*);
-static err_t Insert(struct state*);
-static err_t Set(struct state*);
-static err_t Del(struct state*);
-static err_t Drop(struct state*);
-static err_t Null(struct state*);
-static err_t Now(struct state*);
+static char *Load(struct query*);
+static char *Save(struct query*);
+static char *Table(struct query*);
+static char *Eq(struct query*);
+static char *Neq(struct query*);
+static char *Select(struct query*);
+static char *Create(struct query*);
+static char *Insert(struct query*);
+static char *Set(struct query*);
+static char *Del(struct query*);
+static char *Drop(struct query*);
+static char *Null(struct query*);
+static char *Now(struct query*);
 
 static struct table *tables = 0;
 static struct word words[] = {
-	"LOAD",	Load,
-	"SAVE",	Save,
-	"TABLE",	Table,
-	"EQ",	Eq,
-	"NEQ",	Neq,
-	"SELECT",	Select,
-	"CREATE",	Create,
-	"INSERT",	Insert,
-	"SET",	Set,
-	"DEL",	Del,
-	"DROP",	Drop,
-	"NULL",	Null,
-	"NOW",	Now,
+	"LOAD", Load,
+	"SAVE", Save,
+	"TABLE", Table,
+	"EQ", Eq,
+	"NEQ", Neq,
+	"SELECT", Select,
+	"CREATE", Create,
+	"INSERT", Insert,
+	"SET", Set,
+	"DEL", Del,
+	"DROP", Drop,
+	"NULL", Null,
+	"NOW", Now,
 	0
 };
 
-static err_t
+static char *
 msg(const char *fmt, ...)
 {
 	static char buf[4096];
@@ -102,13 +98,13 @@ msg(const char *fmt, ...)
 	vsnprintf(buf, sizeof buf, fmt, ap);
 	va_end(ap);
 
-	return (err_t)buf;
+	return buf;
 }
 
-static unsigned
+static int
 utf8len(char *str)
 {
-	unsigned i, n;
+	int i, n;
 
 	for (i=0, n=0; str[i]; i++)
 		if ((str[i] & 0xC0) != 0x80)
@@ -116,8 +112,8 @@ utf8len(char *str)
 	return n;
 }
 
-static unsigned
-width(unsigned w, char *cell)
+static int
+width(int w, char *cell)
 {
 	for (; *cell; cell++)
 		if ((*cell & 0xC0) == 0x80)
@@ -201,7 +197,7 @@ column_indexof(struct table *t, char *name)
 {
 	int i;
 
-	for (i=0; t->cols[i]; i++)
+	for (i=0; i < t->cn; i++)
 		if (!strcmp(t->cols[i], name))
 			return i;
 
@@ -245,14 +241,18 @@ each_cell(char *str)
 	return str;
 }
 
-static err_t
+static char *
 parse(char *str)
 {
-	struct table *t=0;
-	struct row *r=0;
-	unsigned i=0, n;
+	struct table *t;
+	struct row *r;
+	int i, n;
 	char *line, *next_line, *cell, *next_cell;
 	int state;
+
+	t = 0;
+	r = 0;
+	r = 0;
 
 	state = TABLE;
 	for (line = str; line; line = next_line) {
@@ -276,7 +276,7 @@ parse(char *str)
 			cell = skip_whitespaces(cell);
 			next_cell = each_cell(cell);
 
-			if (i >= CMAX)
+			if (i > CMAX)
 				return msg("Cells count (%d) exceeded in table %s", CMAX, t->name);
 
 			switch (state) {
@@ -297,6 +297,7 @@ parse(char *str)
 				state = COLS;
 				break;
 			case COLS:
+				t->cn++;
 				t->cols[i] = cell;
 				t->width[i] = utf8len(cell);
 				if (!next_cell)
@@ -316,55 +317,55 @@ parse(char *str)
 }
 
 static void
-push(struct state *state, char *word)
+push(struct query *state, char *word)
 {
 	state->stack[state->si++] = word;
 }
 
 static char *
-pop(struct state *state)
+pop(struct query *state)
 {
 	return state->si ? state->stack[--(state->si)] : 0;
 }
 
 static char *
-next(struct state *state)
+next(char **cp)
 {
 	char terminate, *word;
 
-	state->cp = skip_whitespaces(state->cp);
-	if (!*state->cp)
+	*cp = skip_whitespaces(*cp);
+	if (!**cp)
 		return 0;
 
-	switch (*state->cp) {
+	switch (**cp) {
 	case '"': case '\'':	/* Explicite strings */
-		terminate = *state->cp;
-		(*state->cp)++;
+		terminate = **cp;
+		(*cp)++;
 		break;
 	default:
 		terminate = ' ';
 	}
 
-	word = state->cp;
+	word = *cp;
 
-	while (*state->cp && *state->cp != '\n' && *state->cp != terminate)
-		state->cp++;
+	while (**cp && **cp != '\n' && **cp != terminate)
+		(*cp)++;
 
-	*state->cp = 0;
-	state->cp++;
+	**cp = 0;
+	(*cp)++;
 	return word;
 }
 
-static err_t
-Load(struct state *state)
+static char *
+Load(struct query *query)
 {
-	err_t why;
+	char *why;
 	char *str;
 	struct stat fs = {0};
 	FILE *fp;
 	size_t sz;
 
-	str = pop(state);
+	str = pop(query);
 	if (!str)
 		return "Missing file path";
 
@@ -394,16 +395,16 @@ Load(struct state *state)
 	return 0;
 }
 
-static err_t
-Save(struct state *state)
+static char *
+Save(struct query *query)
 {
 	char *str;
 	FILE *fp;
 	struct table *t;
 	struct row *r;
-	unsigned i;
+	int i;
 
-	str = pop(state);
+	str = pop(query);
 	if (!str)
 		return "Missing file path";
 
@@ -438,26 +439,26 @@ Save(struct state *state)
 	return 0;
 }
 
-static err_t
-Table(struct state *state)
+static char *
+Table(struct query *query)
 {
-	state->tname = pop(state);
-	state->table = table_get(state->tname);
+	query->tname = pop(query);
+	query->table = table_get(query->tname);
 	return 0;
 }
 
-static err_t
-Eq(struct state *state)
+static char *
+Eq(struct query *query)
 {
 	char *column, *value;
 	int i;
 
-	if (!state->table)
+	if (!query->table)
 		return "Undefined table";
 
 	while (1) {
-		column = pop(state);
-		value = pop(state);
+		column = pop(query);
+		value = pop(query);
 
 		if (!column)
 			break;	/* End, nothing more on stack */
@@ -465,28 +466,28 @@ Eq(struct state *state)
 		if (!value)
 			return msg("Missing value for column %s", column);
 
-		i = column_indexof(state->table, column);
+		i = column_indexof(query->table, column);
 		if (i == -1)
 			return msg("Column %s don't exist", column);
 
-		state->eq[i] = value;
+		query->eq[i] = value;
 	}
 
 	return 0;
 }
 
-static err_t
-Neq(struct state *state)
+static char *
+Neq(struct query *query)
 {
 	char *column, *value;
 	int i;
 
-	if (!state->table)
+	if (!query->table)
 		return "Undefined table";
 
 	while (1) {
-		column = pop(state);
-		value = pop(state);
+		column = pop(query);
+		value = pop(query);
 
 		if (!column)
 			break;	/* End, nothing more on stack */
@@ -494,41 +495,41 @@ Neq(struct state *state)
 		if (!value)
 			return msg("Missing value for column %s", column);
 
-		i = column_indexof(state->table, column);
+		i = column_indexof(query->table, column);
 		if (i == -1)
 			return msg("Column %s don't exist", column);
 
-		state->neq[i] = value;
+		query->neq[i] = value;
 	}
 
 	return 0;
 }
 
-static err_t
-Select(struct state *state)
+static char *
+Select(struct query *query)
 {
 	struct row *r;
 	char *str, *cols[CMAX], *rows[CMAX];
 	int i,j, coli[CMAX], ri, cn;
 
-	if (!state->table)
+	if (!query->table)
 		return "Undefined table";
 
 	ri = 0;
 	cn = 0;
 
 	for (i=CMAX; i>0;) {
-		str = pop(state);
+		str = pop(query);
 		if (!str)
 			break;
 
 		if (!strcmp(str, "*")) {
-			for (j=0; i>0 && state->table->cols[j]; j++)
-				coli[--i] = j;
+			for (j = query->table->cn; j > 0;)
+				coli[--i] = --j;
 			continue;
 		}
 
-		j = column_indexof(state->table, str);
+		j = column_indexof(query->table, str);
 		if (j == -1)
 			return msg("Unknown column %s", str);
 
@@ -539,15 +540,15 @@ Select(struct state *state)
 		coli[j] = coli[i++];
 
 	for (i=0; i<cn; i++)
-		cols[i] = state->table->cols[coli[i]];
+		cols[i] = query->table->cols[coli[i]];
 
-	for (r = state->table->rows; r; r = r->next, ri++) {
-		for (i=0; state->table->cols[i]; i++) {
-			str = state->eq[i];
+	for (r = query->table->rows; r; r = r->next, ri++) {
+		for (i=0; i < query->table->cn; i++) {
+			str = query->eq[i];
 			if (str && strcmp(str, r->cells[i]))
 				goto skip;
 
-			str = state->neq[i];
+			str = query->neq[i];
 			if (str && !strcmp(str, r->cells[i]))
 				goto skip;
 		}
@@ -555,7 +556,7 @@ Select(struct state *state)
 		for (i=0; i<cn; i++)
 			rows[i] = r->cells[coli[i]];
 
-		(*state->cb)(state->ctx, 0, ri, cn, cols, rows);
+		(*query->cb)(query->ctx, 0, ri, cn, cols, rows);
 	skip:
 		continue;
 	}
@@ -563,52 +564,51 @@ Select(struct state *state)
 	return 0;
 }
 
-static err_t
-Create(struct state *state)
+static char *
+Create(struct query *query)
 {
 	char *cell, *cells[CMAX] = {0};
-	unsigned i, j;
+	int i, j;
 
-	if (!state->tname)
+	if (!query->tname)
 		return "Missing table name";
 
-	if (state->table)
+	if (query->table)
 		return "Table already exists";
 
-	state->table = table_new();
-	if (!state->table)
+	query->table = table_new();
+	if (!query->table)
 		return "Failed to create new table";
 
-	state->table->name = store(state->tname, -1);
+	query->table->name = store(query->tname, -1);
 
-	for (i=0; i < CMAX-1 && (cell = pop(state)); i++)
+	for (i=0; i < CMAX-1 && (cell = pop(query)); i++)
 		cells[i] = store(cell, -1);
 
 	/* NOTE(irek): Decrement to preserve columns order. */
 	for (j=0; i--; j++) {
 		cell = cells[i];
-		state->table->cols[j] = cell;
-		state->table->width[j] = utf8len(cell);
+		query->table->cols[j] = cell;
+		query->table->width[j] = utf8len(cell);
 	}
 
 	return 0;
 }
 
-static err_t
-Insert(struct state *state)
+static char *
+Insert(struct query *query)
 {
 	struct row *r;
 	char *column, *value;
-	int i;
-	unsigned w;
+	int i, w;
 	char *cells[CMAX] = {0};
 
-	if (!state->table)
+	if (!query->table)
 		return "Undefined table";
 
 	while (1) {
-		column = pop(state);
-		value = pop(state);
+		column = pop(query);
+		value = pop(query);
 
 		if (!column)
 			break;	/* End, nothing more on stack */
@@ -616,57 +616,57 @@ Insert(struct state *state)
 		if (!value)
 			return msg("Missing value for column %s", column);
 
-		i = column_indexof(state->table, column);
+		i = column_indexof(query->table, column);
 		if (i == -1)
 			return msg("Column %s don't exist", column);
 
 		cells[i] = value;
 	}
 
-	r = row_new(state->table);
+	r = row_new(query->table);
 	if (!r)
-		return msg("Failed to create row for table %s", state->table->name);
+		return msg("Failed to create row for table %s", query->table->name);
 
-	for (i=0; state->table->cols[i]; i++) {
+	for (i=0; i < query->table->cn; i++) {
 		r->cells[i] = cells[i] ? store(cells[i], -1) : EMPTY;
 		w = utf8len(r->cells[i]);
-		if (w > state->table->width[i])
-			state->table->width[i] = w;
+		if (w > query->table->width[i])
+			query->table->width[i] = w;
 	}
 
 	return 0;
 }
 
-static err_t
-Set(struct state *state)
+static char *
+Set(struct query *query)
 {
-	(void)state;
+	(void)query;
 	return "Not implemented";
 }
 
-static err_t
-Del(struct state *state)
+static char *
+Del(struct query *query)
 {
-	(void)state;
+	(void)query;
 	return "Not implemented";
 }
 
-static err_t
-Drop(struct state *state)
+static char *
+Drop(struct query *query)
 {
-	(void)state;
+	(void)query;
 	return "Not implemented";
 }
 
-static err_t
-Null(struct state *state)
+static char *
+Null(struct query *query)
 {
-	push(state, EMPTY);
+	push(query, EMPTY);
 	return 0;
 }
 
-static err_t
-Now(struct state *state)
+static char *
+Now(struct query *query)
 {
 	time_t now;
 	struct tm *tm;
@@ -684,40 +684,38 @@ Now(struct state *state)
 	 * program like most of the values.  The main storage is more
 	 * suited for storing table cell values. */
 	str = store(buf, sz);
-	push(state, str);
+	push(query, str);
 	return 0;
 }
 
 void
 boruta(boruta_cb_t cb, void *ctx, char *fmt, ...)
 {
-	static struct state state = {0};
-	err_t why = 0;
-	char *str;
+	struct query query = {0};
+	char *why, *str, cmd[4096], *cp;
 	va_list ap;
 	unsigned n;
 	struct word *w;
 
-	memset(&state, 0, sizeof state);
-
-	state.cb = cb;
-	state.ctx = ctx;
+	why = 0;
+	query.cb = cb;
+	query.ctx = ctx;
 
 	va_start(ap, fmt);
-	n = vsnprintf(state.cmd, sizeof state.cmd, fmt, ap);
+	n = vsnprintf(cmd, sizeof cmd, fmt, ap);
 	va_end(ap);
 
-	state.cp = state.cmd;
-	if (n >= sizeof state.cmd)
-		why = msg("Command length exceeded (%d)", sizeof state.cmd);
+	if (n >= sizeof cmd)
+		why = msg("Command max length %d exceeded", sizeof cmd);
 
+	cp = cmd;
 	while (1) {
 		if (why) {
 			(*cb)(ctx, why, 0, 0, 0, 0);
 			break;
 		}
 
-		str = next(&state);
+		str = next(&cp);
 		if (!str)
 			break;
 
@@ -726,8 +724,8 @@ boruta(boruta_cb_t cb, void *ctx, char *fmt, ...)
 				break;
 
 		if (w->name)
-			why = (*w->cb)(&state);
+			why = (*w->cb)(&query);
 		else
-			push(&state, str);
+			push(&query, str);
 	}
 }
