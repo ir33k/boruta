@@ -50,7 +50,6 @@ static char *pop(struct query *query);
 static char *next(char **cp);
 static int filter(struct query *query, struct row *r);
 
-/* Words */
 static char *Info(struct query*);
 static char *Load(struct query*);
 static char *Write(struct query*);
@@ -381,8 +380,14 @@ next(char **cp)
 	while (**cp && **cp != '\n' && **cp != terminate)
 		(*cp)++;
 
-	**cp = 0;
-	(*cp)++;
+	/* TODO(irek): So ugly */
+	if (**cp) {
+		**cp = 0;
+		(*cp)++;
+	} else {
+		**cp = 0;
+	}
+
 	return word;
 }
 
@@ -706,6 +711,7 @@ Create(struct query *query)
 	/* NOTE(irek): Decrement to preserve columns order. */
 	for (j=0; i--; j++) {
 		cell = cells[i];
+		query->table->cn++;
 		query->table->cols[j] = cell;
 		query->table->width[j] = utf8len(cell);
 	}

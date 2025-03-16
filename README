@@ -1,52 +1,17 @@
-Boruta is a text file database with stack based query language
+Boruta [1] is a text file database with concatenative [2] query language
 
 This is an exploration of an idea where a text file is a database
 presented in humanreadable form that is easy and safe to edit by hand
 but at the same time can be access with database software, explored
-and modified with query like language.
+and modified with query language.
 
-https://en.wikipedia.org/wiki/Devil_Boruta
-https://en.wikipedia.org/wiki/Database_model
-https://en.wikipedia.org/wiki/Relational_model
-https://en.wikipedia.org/wiki/Codd%27s_12_rules
-https://en.wikipedia.org/wiki/Flat-file_database
+[1] https://wikipedia.org/wiki/Devil_Boruta
+[2] https://wikipedia.org/wiki/Concatenative_programming_language
+[3] https://wikipedia.org/wiki/Database_model
+[4] https://wikipedia.org/wiki/Relational_model
+[5] https://wikipedia.org/wiki/Codd%27s_12_rules
+[6] https://wikipedia.org/wiki/Flat-file_database
 
 
 USAGE
 
-	$ boruta
-	boruta> db_file LOAD
-	1
-	boruta> tmp TABLE id name updated_at CREATE
-	3
-	boruta> tmp TABLE 0 id Gomez name INSERT 1 id Diego name INSERT 2 id Milten name INSERT
-	3
-	boruta> tmp TABLE id 0 GT updated_at NULL EQ name SELECT
-	name
-	Diego
-	Milten
-	2
-	boruta> tmp TABLE id 1 LEQ updated_at 2025 UPDATE
-	2
-	boruta> tmp TABLE * SELECT
-	id  name    updated_at
-	0   Gomez   2025
-	1   Diego   2025
-	2   Milten  ---
-	3
-	boruta> tmp TABLE updated_at 2025 EQ DELETE
-	2
-	boruta> tmp TABLE * SELECT
-	id  name    updated_at
-	2   Milten  ---
-	1
-	boruta> tmp TABLE updated_at DROP
-	1
-	boruta> tmp TABLE * DROP
-	2
-	boruta> tmp TABLE DROP
-	1
-	boruta> optional_file_path SAVE
-	1
-	boruta> UNLOAD
-	0
