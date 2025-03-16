@@ -18,7 +18,7 @@ struct row {
 
 struct table {
 	char *name;
-	int cn;	/* Number of columns */
+	int cn, rn;	/* Number of columns and rows */
 	char *cols[CMAX];
 	int width[CMAX];	/* Each column max width */
 	struct row *rows, *last;
@@ -33,6 +33,7 @@ struct query {
 	char *tname;		/* Selected table name */
 	struct table *table;	/* Selected table if exist */
 	char *eq[CMAX], *neq[CMAX];
+	int skip, limit;
 };
 
 struct word {
@@ -56,11 +57,15 @@ static char *pop(struct query *state);
 static char *next(char **cp);
 
 /* Words */
+static char *Stack(struct query*);
+static char *Info(struct query*);
 static char *Load(struct query*);
-static char *Save(struct query*);
+static char *Write(struct query*);
 static char *Table(struct query*);
 static char *Eq(struct query*);
 static char *Neq(struct query*);
+static char *Skip(struct query*);
+static char *Limit(struct query*);
 static char *Select(struct query*);
 static char *Create(struct query*);
 static char *Insert(struct query*);
@@ -72,11 +77,15 @@ static char *Now(struct query*);
 
 static struct table *tables = 0;
 static struct word words[] = {
+	"STACK", Stack,
+	"INFO", Info,
 	"LOAD", Load,
-	"SAVE", Save,
+	"WRITE", Write,
 	"TABLE", Table,
 	"EQ", Eq,
 	"NEQ", Neq,
+	"SKIP", Skip,
+	"LIMIT", Limit,
 	"SELECT", Select,
 	"CREATE", Create,
 	"INSERT", Insert,
@@ -189,6 +198,8 @@ row_new(struct table *t)
 		t->last->next = new;
 
 	t->last = new;
+	t->rn++;
+
 	return new;
 }
 
@@ -356,6 +367,74 @@ next(char **cp)
 }
 
 static char *
+Stack(struct query *query)
+{
+	int i;
+	char buf[16], *cols[2], *rows[2];
+
+	if (!query->si)
+		return "Stack is empty";
+
+	cols[0] = "index";
+	cols[1] = "value";
+	rows[0] = buf;
+
+	for (i=0; i < query->si; i++) {
+		snprintf(buf, sizeof buf, "%d", i);
+		rows[1] = query->stack[i];
+		(*query->cb)(query->ctx, 0, i, 2, cols, rows);
+	}
+
+	return 0;
+}
+
+static char *
+Info(struct query *query)
+{
+	int i;
+	char buf0[32], buf1[32], buf2[32], *cols[4], *rows[4];
+	struct table *node;
+
+	if (query->tname && !query->table)
+		return msg("No table named %s", query->tname);
+
+	cols[0] = "index";
+	rows[0] = buf0;
+
+	if (query->table) {	/* List table columns */
+		if (query->table->cn == 0)
+			return msg("Table %s has no columns", query->tname);
+
+		cols[1] = "column";
+
+		for (i=0; i < query->table->cn; i++) {
+			snprintf(buf0, sizeof buf0, "%d", i);
+			rows[1] = query->table->cols[i];
+			(*query->cb)(query->ctx, 0, i, 2, cols, rows);
+		}
+	} else {		/* List tables */
+		if (!tables)
+			return "No tables";
+
+		cols[1] = "columns";
+		cols[2] = "rows";
+		cols[3] = "table";
+		rows[1] = buf1;
+		rows[2] = buf2;
+
+		for (i=0, node = tables; node; node = node->next, i++) {
+			snprintf(buf0, sizeof buf0, "%d", i);
+			snprintf(buf1, sizeof buf1, "%d", node->cn);
+			snprintf(buf2, sizeof buf2, "%d", node->rn);
+			rows[3] = node->name;
+			(*query->cb)(query->ctx, 0, i, 4, cols, rows);
+		}
+	}
+
+	return 0;
+}
+
+static char *
 Load(struct query *query)
 {
 	char *why, *str;
@@ -394,7 +473,7 @@ Load(struct query *query)
 }
 
 static char *
-Save(struct query *query)
+Write(struct query *query)
 {
 	char *str;
 	FILE *fp;
@@ -407,7 +486,7 @@ Save(struct query *query)
 		return "Missing file path";
 
 	if (!tables)
-		return "Nothing to save";
+		return "Nothing to write";
 
 	if (!(fp = fopen(str, "w")))
 		return msg("Failed to open file '%s'", str);
@@ -504,6 +583,32 @@ Neq(struct query *query)
 }
 
 static char *
+Skip(struct query *query)
+{
+	char *str;
+
+	str = pop(query);
+	if (!str)
+		return "Missing SKIP argument";
+
+	query->skip = atoi(str);
+	return 0;
+}
+
+static char *
+Limit(struct query *query)
+{
+	char *str;
+
+	str = pop(query);
+	if (!str)
+		return "Missing LIMIT argument";
+
+	query->limit = atoi(str);
+	return 0;
+}
+
+static char *
 Select(struct query *query)
 {
 	struct row *r;
@@ -551,10 +656,18 @@ Select(struct query *query)
 				goto skip;
 		}
 
+		if (query->skip) {
+			query->skip--;
+			continue;
+		}
+
 		for (i=0; i<cn; i++)
 			rows[i] = r->cells[coli[i]];
 
 		(*query->cb)(query->ctx, 0, ri, cn, cols, rows);
+
+		if (query->limit && !(--query->limit))
+				return 0;
 	skip:
 		continue;
 	}

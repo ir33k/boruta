@@ -4,9 +4,9 @@
 static void
 cb(void *ctx, const char *why, int ri, int cn, char **cols, char **rows)
 {
-	int i;
+	int i, *count;
 
-	(void)ctx;
+	count = ctx;
 
 	if (why) {
 		fprintf(stderr, "boruta: %s\n", why);
@@ -24,12 +24,15 @@ cb(void *ctx, const char *why, int ri, int cn, char **cols, char **rows)
 		printf("%s\t", rows[i]);
 
 	printf("\n");
+
+	(*count)++;
 }
 
 int
 main(int argc, char **argv)
 {
 	char buf[4096];
+	int count;
 
 	if (argc > 1)
 		boruta(cb, 0, "%s LOAD", argv[1]);
@@ -40,7 +43,9 @@ main(int argc, char **argv)
 		if (!fgets(buf, sizeof buf, stdin))
 			break;
 
-		boruta(cb, 0, buf);
+		count = 0;
+		boruta(cb, &count, buf);
+		printf("%d\n", count);
 	}
 	printf("\n");
 
