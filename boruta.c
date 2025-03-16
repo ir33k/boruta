@@ -52,9 +52,10 @@ static char *skip_whitespaces(char *str);
 static char *each_line(char *str);
 static char *each_cell(char *str);
 static char *parse(char *str);
-static void push(struct query *state, char *word);
-static char *pop(struct query *state);
+static void push(struct query *query, char *word);
+static char *pop(struct query *query);
 static char *next(char **cp);
+static int filter(struct query *query, struct row *r);
 
 /* Words */
 static char *Stack(struct query*);
@@ -327,15 +328,15 @@ parse(char *str)
 }
 
 static void
-push(struct query *state, char *word)
+push(struct query *query, char *word)
 {
-	state->stack[state->si++] = word;
+	query->stack[query->si++] = word;
 }
 
 static char *
-pop(struct query *state)
+pop(struct query *query)
 {
-	return state->si ? state->stack[--(state->si)] : 0;
+	return query->si ? query->stack[--(query->si)] : 0;
 }
 
 static char *
@@ -366,23 +367,42 @@ next(char **cp)
 	return word;
 }
 
+static int
+filter(struct query *query, struct row *r)
+{
+	int i;
+	char *str;
+
+	for (i=0; i < query->table->cn; i++) {
+		str = query->eq[i];
+		if (str && strcmp(str, r->cells[i]))
+			return 1;
+
+		str = query->neq[i];
+		if (str && !strcmp(str, r->cells[i]))
+			return 1;
+	}
+
+	return 0;
+}
+
 static char *
 Stack(struct query *query)
 {
 	int i;
-	char buf[16], *cols[2], *rows[2];
+	char buf[16], *cols[2], *row[2];
 
 	if (!query->si)
 		return "Stack is empty";
 
 	cols[0] = "index";
 	cols[1] = "value";
-	rows[0] = buf;
+	row[0] = buf;
 
 	for (i=0; i < query->si; i++) {
 		snprintf(buf, sizeof buf, "%d", i);
-		rows[1] = query->stack[i];
-		(*query->cb)(query->ctx, 0, i, 2, cols, rows);
+		row[1] = query->stack[i];
+		(*query->cb)(query->ctx, 0, i, 2, cols, row);
 	}
 
 	return 0;
@@ -392,14 +412,14 @@ static char *
 Info(struct query *query)
 {
 	int i;
-	char buf0[32], buf1[32], buf2[32], *cols[4], *rows[4];
+	char buf0[32], buf1[32], buf2[32], *cols[4], *row[4];
 	struct table *node;
 
 	if (query->tname && !query->table)
 		return msg("No table named %s", query->tname);
 
 	cols[0] = "index";
-	rows[0] = buf0;
+	row[0] = buf0;
 
 	if (query->table) {	/* List table columns */
 		if (query->table->cn == 0)
@@ -409,8 +429,8 @@ Info(struct query *query)
 
 		for (i=0; i < query->table->cn; i++) {
 			snprintf(buf0, sizeof buf0, "%d", i);
-			rows[1] = query->table->cols[i];
-			(*query->cb)(query->ctx, 0, i, 2, cols, rows);
+			row[1] = query->table->cols[i];
+			(*query->cb)(query->ctx, 0, i, 2, cols, row);
 		}
 	} else {		/* List tables */
 		if (!tables)
@@ -419,15 +439,15 @@ Info(struct query *query)
 		cols[1] = "columns";
 		cols[2] = "rows";
 		cols[3] = "table";
-		rows[1] = buf1;
-		rows[2] = buf2;
+		row[1] = buf1;
+		row[2] = buf2;
 
 		for (i=0, node = tables; node; node = node->next, i++) {
 			snprintf(buf0, sizeof buf0, "%d", i);
 			snprintf(buf1, sizeof buf1, "%d", node->cn);
 			snprintf(buf2, sizeof buf2, "%d", node->rn);
-			rows[3] = node->name;
-			(*query->cb)(query->ctx, 0, i, 4, cols, rows);
+			row[3] = node->name;
+			(*query->cb)(query->ctx, 0, i, 4, cols, row);
 		}
 	}
 
@@ -612,7 +632,7 @@ static char *
 Select(struct query *query)
 {
 	struct row *r;
-	char *str, *cols[CMAX], *rows[CMAX];
+	char *str, *cols[CMAX], *row[CMAX];
 	int i, j, coli[CMAX], ri, cn;
 
 	if (!query->table)
@@ -646,15 +666,8 @@ Select(struct query *query)
 		cols[i] = query->table->cols[coli[i]];
 
 	for (r = query->table->rows; r; r = r->next, ri++) {
-		for (i=0; i < query->table->cn; i++) {
-			str = query->eq[i];
-			if (str && strcmp(str, r->cells[i]))
-				goto skip;
-
-			str = query->neq[i];
-			if (str && !strcmp(str, r->cells[i]))
-				goto skip;
-		}
+		if (filter(query, r))
+			continue;
 
 		if (query->skip) {
 			query->skip--;
@@ -662,14 +675,12 @@ Select(struct query *query)
 		}
 
 		for (i=0; i<cn; i++)
-			rows[i] = r->cells[coli[i]];
+			row[i] = r->cells[coli[i]];
 
-		(*query->cb)(query->ctx, 0, ri, cn, cols, rows);
+		(*query->cb)(query->ctx, 0, ri, cn, cols, row);
 
 		if (query->limit && !(--query->limit))
-				return 0;
-	skip:
-		continue;
+			return 0;
 	}
 
 	return 0;
@@ -750,8 +761,45 @@ Insert(struct query *query)
 static char *
 Set(struct query *query)
 {
-	(void)query;
-	return "Not implemented";
+	struct table *t;
+	struct row *r;
+	char *column, *value, *new[CMAX]={0};
+	int i, ri;
+
+	t = query->table;
+	if (!t)
+		return "Undefined table";
+
+	while (1) {
+		column = pop(query);
+		value = pop(query);
+
+		if (!column)
+			break;	/* End, nothing more on stack */
+
+		if (!value)
+			return msg("Missing value for column %s", column);
+
+		i = column_indexof(t, column);
+		if (i == -1)
+			return msg("Column %s don't exist", column);
+
+		new[i] = value;
+	}
+
+	ri = 0;
+	for (r = t->rows; r; r = r->next, ri++) {
+		if (filter(query, r))
+			continue;
+
+		for (i=0; i < t->cn; i++)
+			if (new[i])
+				r->cells[i] = store(new[i], -1);
+
+		(*query->cb)(query->ctx, 0, ri, t->cn, t->cols, r->cells);
+	}
+
+	return 0;
 }
 
 static char *

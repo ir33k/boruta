@@ -2,7 +2,7 @@
 #include "boruta.h"
 
 static void
-cb(void *ctx, const char *why, int ri, int cn, char **cols, char **rows)
+cb(void *ctx, const char *why, int ri, int cn, char **cols, char **row)
 {
 	int i, *count;
 
@@ -21,7 +21,7 @@ cb(void *ctx, const char *why, int ri, int cn, char **cols, char **rows)
 	}
 
 	for (i=0; i<cn; i++)
-		printf("%s\t", rows[i]);
+		printf("%s\t", row[i]);
 
 	printf("\n");
 
