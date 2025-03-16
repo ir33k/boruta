@@ -246,9 +246,8 @@ parse(char *str)
 {
 	struct table *t;
 	struct row *r;
-	int i, n;
+	int i, n, state;
 	char *line, *next_line, *cell, *next_cell;
-	int state;
 
 	t = 0;
 	r = 0;
@@ -359,8 +358,7 @@ next(char **cp)
 static char *
 Load(struct query *query)
 {
-	char *why;
-	char *str;
+	char *why, *str;
 	struct stat fs = {0};
 	FILE *fp;
 	size_t sz;
@@ -510,7 +508,7 @@ Select(struct query *query)
 {
 	struct row *r;
 	char *str, *cols[CMAX], *rows[CMAX];
-	int i,j, coli[CMAX], ri, cn;
+	int i, j, coli[CMAX], ri, cn;
 
 	if (!query->table)
 		return "Undefined table";
@@ -599,9 +597,8 @@ static char *
 Insert(struct query *query)
 {
 	struct row *r;
-	char *column, *value;
+	char *column, *value, *cells[CMAX]={0};
 	int i, w;
-	char *cells[CMAX] = {0};
 
 	if (!query->table)
 		return "Undefined table";
@@ -671,7 +668,7 @@ Now(struct query *query)
 	time_t now;
 	struct tm *tm;
 	char buf[64], *str;
-	size_t sz;
+	unsigned sz;
 
 	now = time(0);
 	tm = localtime(&now);
