@@ -17,10 +17,8 @@ struct row {
 };
 
 struct table {
-	char *name;
-	int cn, rn;	/* Number of columns and rows */
-	char *cols[CMAX];
-	int width[CMAX];	/* Each column max width */
+	char *name, *cols[CMAX];
+	int cn, rn, width[CMAX];
 	struct row *rows, *last;
 	struct table *next;
 };
@@ -28,17 +26,9 @@ struct table {
 struct query {
 	boruta_cb_t cb;
 	void *ctx;
-	char *stack[128];
-	int si;
-	char *tname;		/* Selected table name */
-	struct table *table;	/* Selected table if exist */
-	char *eq[CMAX], *neq[CMAX];
-	int skip, limit;
-};
-
-struct word {
-	char *name;
-	char *(*cb)(struct query*);
+	char *stack[128], *tname, *eq[CMAX], *neq[CMAX];
+	int si, skip, limit;
+	struct table *table;
 };
 
 static char *msg(const char *fmt, ...);
@@ -79,25 +69,6 @@ static char *Null(struct query*);
 static char *Now(struct query*);
 
 static struct table *tables = 0;
-static struct word words[] = {
-	"INFO", Info,
-	"LOAD", Load,
-	"WRITE", Write,
-	"TABLE", Table,
-	"EQ", Eq,
-	"NEQ", Neq,
-	"SKIP", Skip,
-	"LIMIT", Limit,
-	"SELECT", Select,
-	"CREATE", Create,
-	"INSERT", Insert,
-	"SET", Set,
-	"DEL", Del,
-	"DROP", Drop,
-	"NULL", Null,
-	"NOW", Now,
-	0
-};
 
 static char *
 msg(const char *fmt, ...)
@@ -153,11 +124,11 @@ store(char *str, size_t len)
 static struct table *
 table_get(char *name)
 {
-	struct table *node;
+	struct table *t;
 
-	for (node = tables; node; node = node->next)
-		if (!strcmp(node->name, name))
-			return node;
+	for (t = tables; t; t = t->next)
+		if (!strcmp(t->name, name))
+			return t;
 
 	return 0;
 }
@@ -893,15 +864,14 @@ Now(struct query *query)
 void
 boruta(boruta_cb_t cb, void *ctx, char *fmt, ...)
 {
-	struct query query = {0};
+	struct query q = {0};
 	char *why, *str, cmd[4096], *cp;
 	va_list ap;
 	unsigned n;
-	struct word *w;
 
 	why = 0;
-	query.cb = cb;
-	query.ctx = ctx;
+	q.cb = cb;
+	q.ctx = ctx;
 
 	va_start(ap, fmt);
 	n = vsnprintf(cmd, sizeof cmd, fmt, ap);
@@ -918,16 +888,23 @@ boruta(boruta_cb_t cb, void *ctx, char *fmt, ...)
 		}
 
 		str = next(&cp);
-		if (!str)
-			break;
-
-		for (w=words; w->name; w++)
-			if (!strcmp(w->name, str))
-				break;
-
-		if (w->name)
-			why = (*w->cb)(&query);
-		else
-			push(&query, str);
+		if (!str) break;
+		else if (!strcmp(str,"INFO"))	why = Info(&q);
+		else if (!strcmp(str,"LOAD"))	why = Load(&q);
+		else if (!strcmp(str,"WRITE"))	why = Write(&q);
+		else if (!strcmp(str,"TABLE"))	why = Table(&q);
+		else if (!strcmp(str,"EQ"))	why = Eq(&q);
+		else if (!strcmp(str,"NEQ"))	why = Neq(&q);
+		else if (!strcmp(str,"SKIP"))	why = Skip(&q);
+		else if (!strcmp(str,"LIMIT"))	why = Limit(&q);
+		else if (!strcmp(str,"SELECT"))	why = Select(&q);
+		else if (!strcmp(str,"CREATE"))	why = Create(&q);
+		else if (!strcmp(str,"INSERT"))	why = Insert(&q);
+		else if (!strcmp(str,"SET"))	why = Set(&q);
+		else if (!strcmp(str,"DEL"))	why = Del(&q);
+		else if (!strcmp(str,"DROP"))	why = Drop(&q);
+		else if (!strcmp(str,"NULL"))	why = Null(&q);
+		else if (!strcmp(str,"NOW"))	why = Now(&q);
+		else push(&q, str);
 	}
 }
