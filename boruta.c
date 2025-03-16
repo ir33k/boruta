@@ -37,7 +37,8 @@ struct query {
 };
 
 struct word {
-	char *name, *(*cb)(struct query*);
+	char *name;
+	char *(*cb)(struct query*);
 };
 
 static char *msg(const char *fmt, ...);
@@ -60,7 +61,6 @@ static char *next(char **cp);
 static int filter(struct query *query, struct row *r);
 
 /* Words */
-static char *Stack(struct query*);
 static char *Info(struct query*);
 static char *Load(struct query*);
 static char *Write(struct query*);
@@ -80,7 +80,6 @@ static char *Now(struct query*);
 
 static struct table *tables = 0;
 static struct word words[] = {
-	"STACK", Stack,
 	"INFO", Info,
 	"LOAD", Load,
 	"WRITE", Write,
@@ -430,28 +429,6 @@ filter(struct query *query, struct row *r)
 		str = query->neq[i];
 		if (str && !strcmp(str, r->cells[i]))
 			return 1;
-	}
-
-	return 0;
-}
-
-static char *
-Stack(struct query *query)
-{
-	int i;
-	char buf[16], *cols[2], *row[2];
-
-	if (!query->si)
-		return "Stack is empty";
-
-	cols[0] = "index";
-	cols[1] = "value";
-	row[0] = buf;
-
-	for (i=0; i < query->si; i++) {
-		snprintf(buf, sizeof buf, "%d", i);
-		row[1] = query->stack[i];
-		(*query->cb)(query->ctx, 0, 2, cols, row);
 	}
 
 	return 0;
