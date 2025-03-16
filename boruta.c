@@ -503,14 +503,13 @@ Write(struct query *query)
 	struct row *r;
 	int i;
 
-	str = pop(query);
-	if (!str)
-		return "Missing file path";
-
 	if (!tables)
 		return "Nothing to write";
 
-	if (!(fp = fopen(str, "w")))
+	fp = stdout;
+	str = pop(query);
+
+	if (str && !(fp = fopen(str, "w")))
 		return msg("Failed to open file '%s'", str);
 
 	for (t = tables; t; t = t->next) {
@@ -532,7 +531,7 @@ Write(struct query *query)
 		fprintf(fp, "\n");
 	}
 
-	if (fclose(fp))
+	if (fp != stdout && fclose(fp))
 		return "Failed to close file";
 
 	return 0;
@@ -610,10 +609,8 @@ Skip(struct query *query)
 	char *str;
 
 	str = pop(query);
-	if (!str)
-		return "Missing SKIP argument";
+	query->skip = str ? atoi(str) : 0;
 
-	query->skip = atoi(str);
 	return 0;
 }
 
@@ -623,10 +620,8 @@ Limit(struct query *query)
 	char *str;
 
 	str = pop(query);
-	if (!str)
-		return "Missing LIMIT argument";
+	query->limit = str ? atoi(str) : 0;
 
-	query->limit = atoi(str);
 	return 0;
 }
 
