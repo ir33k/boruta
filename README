@@ -13,5 +13,29 @@ and modified with query language.
 [6] https://wikipedia.org/wiki/Flat-file_database
 
 
-USAGE
+USAGE:
 
+$ make
+$ ./boruta
+boruta> database LOAD
+0
+boruta> INFO
+index	columns	rows	table
+0	0	0	aaa
+1	1	0	bbb
+2	3	0	ccc
+3	3	4	people
+4
+boruta> people TABLE INFO
+index	column
+0	id
+1	name
+2	email
+3
+boruta> people TABLE name email SELECT
+name	email
+Gomez	gomez@old.camp
+Diego	diego@old.camp
+---	snap@old.camp
+---	---
+4

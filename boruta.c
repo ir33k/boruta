@@ -50,10 +50,10 @@ static char *pop(struct query *query);
 static char *next(char **cp);
 static int filter(struct query *query, struct row *r);
 
+static char *Table(struct query*);
 static char *Info(struct query*);
 static char *Load(struct query*);
 static char *Write(struct query*);
-static char *Table(struct query*);
 static char *Eq(struct query*);
 static char *Neq(struct query*);
 static char *Skip(struct query*);
@@ -411,6 +411,14 @@ filter(struct query *query, struct row *r)
 }
 
 static char *
+Table(struct query *query)
+{
+	query->tname = pop(query);
+	query->table = table_get(query->tname);
+	return 0;
+}
+
+static char *
 Info(struct query *query)
 {
 	int i;
@@ -534,14 +542,6 @@ Write(struct query *query)
 	if (fp != stdout && fclose(fp))
 		return "Failed to close file";
 
-	return 0;
-}
-
-static char *
-Table(struct query *query)
-{
-	query->tname = pop(query);
-	query->table = table_get(query->tname);
 	return 0;
 }
 
@@ -890,10 +890,10 @@ boruta(boruta_cb_t cb, void *ctx, char *fmt, ...)
 
 		str = next(&cp);
 		if (!str) break;
+		else if (!strcmp(str,"TABLE"))	why = Table(&q);
 		else if (!strcmp(str,"INFO"))	why = Info(&q);
 		else if (!strcmp(str,"LOAD"))	why = Load(&q);
 		else if (!strcmp(str,"WRITE"))	why = Write(&q);
-		else if (!strcmp(str,"TABLE"))	why = Table(&q);
 		else if (!strcmp(str,"EQ"))	why = Eq(&q);
 		else if (!strcmp(str,"NEQ"))	why = Neq(&q);
 		else if (!strcmp(str,"SKIP"))	why = Skip(&q);

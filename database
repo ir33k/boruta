@@ -1,13 +1,13 @@
-table0
+aaa
 
 
-table1
+bbb
 id  
 
-table3
+ccc
 id  name  email  
 
-table4
+people
 id  name   email           
 0   Gomez  gomez@old.camp  
 1   Diego  diego@old.camp  
