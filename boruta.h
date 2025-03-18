@@ -75,7 +75,7 @@ printf() being a valid query.
 
 */
 
-typedef void (*boruta_cb_t)(void *ctx, const char *why,
+typedef void (*boruta_cb_t)(void *ctx, char *why,
                             int cn, char **cols, char **row);
 
 void boruta(boruta_cb_t cb, void *ctx, char *fmt, ...);

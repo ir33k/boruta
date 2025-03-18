@@ -2,7 +2,7 @@
 #include "boruta.h"
 
 static void
-cb(void *ctx, const char *why, int cn, char **cols, char **row)
+cb(void *ctx, char *why, int cn, char **cols, char **row)
 {
 	int i, *count;
 

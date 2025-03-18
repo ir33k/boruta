@@ -7,7 +7,7 @@ struct ctx {
 };
 
 static void
-cb(void *_ctx, const char *why, int cn, char **cols, char **row)
+cb(void *_ctx, char *why, int cn, char **cols, char **row)
 {
 	struct ctx *ctx = _ctx;
 

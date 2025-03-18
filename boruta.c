@@ -654,7 +654,11 @@ Select(struct query *query)
 
 		coli[--i] = j;
 	}
+
 	cn = CMAX - i;
+	if (cn == 0)
+		return "Nothing to select";
+
 	for (j=0; j<cn; j++)
 		coli[j] = coli[i++];
 
